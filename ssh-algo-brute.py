@@ -46,48 +46,43 @@ def try_ssh(host, username, password, verbose=False):
             password=password,
             allow_agent=False,
             look_for_keys=False,
-            timeout=5,
-            banner_timeout=5
+            timeout=8,
+            banner_timeout=8
         )
 
-        transport = client.get_transport()
-        ssh_banner = transport.get_banner()
-        exec_result = ""
+        # Invoke shell to grab real prompt
+        shell = client.invoke_shell()
+        output = shell.recv(1000).decode(errors='ignore').strip()
 
-        if verbose:
-            try:
-                stdin, stdout, stderr = client.exec_command("whoami")
-                exec_result = stdout.read().decode().strip()
-            except Exception:
-                exec_result = "(whoami failed)"
-
-        # Neon green
+        # Display success
         print("\033[92m[+] Success:\033[0m", f"{username}@{host}:{password}", end="")
         if verbose:
-            if ssh_banner:
-                print(f"  --> Banner: {ssh_banner.strip()}", end="")
-            if exec_result:
-                print(f"  --> whoami: {exec_result.strip()}", end="")
-        print()
+            print(f"  --> Prompt: {output.splitlines()[-1]}")
+        else:
+            print()
+
         client.close()
         return True
 
-    except paramiko.AuthenticationException:
+    except paramiko.AuthenticationException as e:
         if verbose:
-            print(f"[-] Auth failed: {username}@{host}:{password}")
+            print(f"[-] Auth failed: {username}@{host}:{password} ({e})")
     except paramiko.SSHException as e:
+        emsg = str(e)
         if verbose:
-            msg = str(e).lower()
-            if 'kex' in msg or 'host key' in msg:
-                print(f"[!] Algorithm negotiation failed on {host}: {e}")
+            if 'kex' in emsg.lower() or 'host key' in emsg.lower():
+                print(f"[!] SSH negotiation failed on {host} (likely missing KEX or host key algorithm): {emsg}")
             else:
-                print(f"[!] SSH exception on {host}: {e}")
+                print(f"[!] SSH error on {host}: {emsg}")
     except socket.timeout:
         if verbose:
             print(f"[!] Timeout on {host}")
     except socket.error as e:
         if verbose:
             print(f"[!] Socket error on {host}: {e}")
+    except Exception as e:
+        if verbose:
+            print(f"[!] General error on {host}: {e}")
     return False
 
 # Main logic
