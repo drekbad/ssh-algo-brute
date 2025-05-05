@@ -47,33 +47,48 @@ def try_ssh(host, username, password, verbose=False):
             allow_agent=False,
             look_for_keys=False,
             timeout=8,
-            banner_timeout=8
+            banner_timeout=8,
+            auth_timeout=8
         )
 
-        # Invoke shell to grab real prompt
+        # Grab interactive prompt after shell login
         shell = client.invoke_shell()
-        output = shell.recv(1000).decode(errors='ignore').strip()
+        shell.settimeout(3)
+        prompt = ""
+        try:
+            data = ""
+            while True:
+                chunk = shell.recv(1024).decode(errors="ignore")
+                data += chunk
+                if any(p in data for p in ("$", "#", ">")):
+                    prompt = data.strip().splitlines()[-1]
+                    break
+        except Exception:
+            prompt = "(could not determine prompt)"
 
-        # Display success
         print("\033[92m[+] Success:\033[0m", f"{username}@{host}:{password}", end="")
         if verbose:
-            print(f"  --> Prompt: {output.splitlines()[-1]}")
+            print(f"  --> Prompt: {prompt}")
         else:
             print()
-
         client.close()
         return True
 
     except paramiko.AuthenticationException as e:
         if verbose:
-            print(f"[-] Auth failed: {username}@{host}:{password} ({e})")
+            print(f"[-] Auth failed: {username}@{host}:{password} (Invalid credentials)")
     except paramiko.SSHException as e:
-        emsg = str(e)
+        msg = str(e)
         if verbose:
-            if 'kex' in emsg.lower() or 'host key' in emsg.lower():
-                print(f"[!] SSH negotiation failed on {host} (likely missing KEX or host key algorithm): {emsg}")
+            if "no matching" in msg.lower() and "kex" in msg.lower():
+                print(f"[!] KEX negotiation failed on {host}")
+                if "offer:" in msg:
+                    offered = msg.split("offer:")[-1].strip()
+                    print(f"    └─ Server offered: {offered}")
+            elif "host key" in msg.lower():
+                print(f"[!] Host key negotiation failed on {host}")
             else:
-                print(f"[!] SSH error on {host}: {emsg}")
+                print(f"[!] SSHException on {host}: {msg}")
     except socket.timeout:
         if verbose:
             print(f"[!] Timeout on {host}")
@@ -82,7 +97,7 @@ def try_ssh(host, username, password, verbose=False):
             print(f"[!] Socket error on {host}: {e}")
     except Exception as e:
         if verbose:
-            print(f"[!] General error on {host}: {e}")
+            print(f"[!] Unexpected error on {host}: {e}")
     return False
 
 # Main logic
